@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
+import 'core/constants/colors.dart';
 import 'core/network/websocket_realtime_client.dart';
 import 'core/storage/local_storage_service.dart';
 import 'core/theme/app_theme.dart';
@@ -95,14 +96,35 @@ class RootAppCoordinator extends StatefulWidget {
 
 class _RootAppCoordinatorState extends State<RootAppCoordinator> {
   String? _initializedUserId;
+  String? _initializedCoupleId;
 
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthState>();
 
+    // Step 0: Initial Booting / Session Verification
+    if (authState.isChecking) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(gradient: AppColors.ambientGlow),
+          child: const Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                color: AppColors.primaryRose,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     // Step 1: User Authentication
     if (!authState.isAuthenticated) {
       _initializedUserId = null;
+      _initializedCoupleId = null;
       return const AuthScreen();
     }
 
@@ -110,8 +132,9 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
     final coupleState = context.watch<CoupleState>();
 
     // Initialize couple state for authenticated user if needed
-    if (_initializedUserId != user.uid) {
+    if (_initializedUserId != user.uid || _initializedCoupleId != user.coupleId) {
       _initializedUserId = user.uid;
+      _initializedCoupleId = user.coupleId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.read<CoupleState>().initForUser(
           myUserId: user.uid,
@@ -138,7 +161,7 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
     final memoriesRepo = FirebaseMemoriesRepository();
     final realtimeClient = WebSocketRealtimeClient();
 
-    // Connect realtime WebSocket if not already connected
+    // Connect realtime WebSocket if not already connected (background non-blocking)
     if (!realtimeClient.isConnected && realtimeClient.coupleId != couple.id) {
       realtimeClient.connect(
         coupleId: couple.id,

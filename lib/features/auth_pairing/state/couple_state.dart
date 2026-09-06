@@ -100,7 +100,10 @@ class CoupleState extends ChangeNotifier {
         _subscribeToCouple(created.id, uid);
       }
 
-      await _realtimeClient.connect(coupleId: _couple!.id, userId: uid);
+      // Initiate WebSocket connection in background without blocking state completion
+      _realtimeClient.connect(coupleId: _couple!.id, userId: uid).catchError((e) {
+        debugPrint('[CoupleState] Realtime WebSocket connection notice: $e');
+      });
       _listenToRealtimeEvents(uid);
     } on TimeoutException {
       debugPrint('[CoupleState] Cloud space creation timed out; retaining local pairing code.');
@@ -168,7 +171,10 @@ class CoupleState extends ChangeNotifier {
         );
       }
 
-      await _realtimeClient.connect(coupleId: _couple!.id, userId: uid);
+      // Non-blocking WebSocket connection in background
+      _realtimeClient.connect(coupleId: _couple!.id, userId: uid).catchError((e) {
+        debugPrint('[CoupleState] Realtime WebSocket connection notice: $e');
+      });
       _listenToRealtimeEvents(uid);
 
       // Broadcast join event over WebSocket to immediately notify creator

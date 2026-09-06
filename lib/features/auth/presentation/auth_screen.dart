@@ -107,6 +107,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   if (_isSignUp) ...[
                     TextField(
                       controller: _nameController,
+                      enabled: !authState.isLoading,
                       style: AppTypography.bodyLarge,
                       decoration: InputDecoration(
                         labelText: 'Your Name (What your partner calls you)',
@@ -120,6 +121,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   TextField(
                     controller: _emailController,
+                    enabled: !authState.isLoading,
                     keyboardType: TextInputType.emailAddress,
                     style: AppTypography.bodyLarge,
                     decoration: InputDecoration(
@@ -133,6 +135,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   TextField(
                     controller: _passwordController,
+                    enabled: !authState.isLoading,
                     obscureText: true,
                     style: AppTypography.bodyLarge,
                     decoration: InputDecoration(
@@ -148,15 +151,26 @@ class _AuthScreenState extends State<AuthScreen> {
                     onPressed: authState.isLoading ? null : () => _handleSubmit(authState),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryRose,
+                      disabledBackgroundColor: AppColors.primaryRose.withOpacity(0.6),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       elevation: 0,
                     ),
                     child: authState.isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                _isSignUp ? 'Creating Your Account...' : 'Signing In...',
+                                style: AppTypography.titleMedium.copyWith(color: Colors.white),
+                              ),
+                            ],
                           )
                         : Text(
                             _isSignUp ? 'Create Account' : 'Sign In to Our Space',
@@ -166,12 +180,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: 16),
 
                   TextButton(
-                    onPressed: () => setState(() => _isSignUp = !_isSignUp),
+                    onPressed: authState.isLoading ? null : () => setState(() => _isSignUp = !_isSignUp),
                     child: Text(
                       _isSignUp
                           ? 'Already have an account? Sign In'
                           : 'First time here? Create Your Account',
-                      style: AppTypography.bodyMedium.copyWith(color: AppColors.softLavender),
+                      style: AppTypography.bodyMedium.copyWith(
+                        color: authState.isLoading ? AppColors.textMuted : AppColors.softLavender,
+                      ),
                     ),
                   ),
                 ],

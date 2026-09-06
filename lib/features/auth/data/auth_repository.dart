@@ -17,6 +17,22 @@ class AuthUser {
     this.coupleId,
   });
 
+  AuthUser copyWith({
+    String? uid,
+    String? email,
+    String? displayName,
+    String? fcmToken,
+    String? coupleId,
+  }) {
+    return AuthUser(
+      uid: uid ?? this.uid,
+      email: email ?? this.email,
+      displayName: displayName ?? this.displayName,
+      fcmToken: fcmToken ?? this.fcmToken,
+      coupleId: coupleId ?? this.coupleId,
+    );
+  }
+
   Map<String, dynamic> toMap() => {
     'uid': uid,
     'email': email,
@@ -25,6 +41,16 @@ class AuthUser {
     'coupleId': coupleId,
     'updatedAt': FieldValue.serverTimestamp(),
   };
+
+  factory AuthUser.fromMap(String uid, Map<String, dynamic> data, {String? fallbackEmail, String? fallbackName}) {
+    return AuthUser(
+      uid: uid,
+      email: data['email'] as String? ?? fallbackEmail ?? '',
+      displayName: data['displayName'] as String? ?? fallbackName ?? 'User',
+      fcmToken: data['fcmToken'] as String?,
+      coupleId: data['coupleId'] as String?,
+    );
+  }
 }
 
 abstract class AuthRepository {
@@ -34,6 +60,8 @@ abstract class AuthRepository {
   Future<AuthUser> signIn({required String email, required String password});
   Future<void> signOut();
   Future<void> registerFcmToken(String uid);
+  Future<AuthUser?> fetchUserProfile(String uid);
+  Future<void> syncUserProfile(AuthUser user);
   Future<void> updateUserCoupleId({required String uid, required String coupleId});
 }
 
@@ -57,19 +85,21 @@ class FirebaseAuthRepository implements AuthRepository {
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
-    );
-    await cred.user?.updateDisplayName(displayName);
+    ).timeout(const Duration(seconds: 15));
 
-    final fcmToken = await _messaging.getToken();
+    // Update display name in Firebase Auth without blocking the return
+    cred.user?.updateDisplayName(displayName).timeout(
+      const Duration(seconds: 5),
+    ).catchError((e) {
+      // Ignored non-fatal error
+    });
 
     final user = AuthUser(
       uid: cred.user!.uid,
       email: email.trim(),
       displayName: displayName,
-      fcmToken: fcmToken,
     );
 
-    await _firestore.collection('users').doc(user.uid).set(user.toMap(), SetOptions(merge: true));
     return user;
   }
 
@@ -81,44 +111,82 @@ class FirebaseAuthRepository implements AuthRepository {
     final cred = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
-    );
+    ).timeout(const Duration(seconds: 15));
 
-    final doc = await _firestore.collection('users').doc(cred.user!.uid).get();
-    final fcmToken = await _messaging.getToken();
-
-    if (fcmToken != null) {
-      await _firestore.collection('users').doc(cred.user!.uid).update({'fcmToken': fcmToken});
-    }
-
-    final data = doc.data() ?? {};
-    return AuthUser(
+    final user = AuthUser(
       uid: cred.user!.uid,
-      email: cred.user!.email ?? email,
-      displayName: data['displayName'] ?? cred.user!.displayName ?? 'User',
-      fcmToken: fcmToken,
-      coupleId: data['coupleId'],
+      email: cred.user!.email ?? email.trim(),
+      displayName: (cred.user!.displayName != null && cred.user!.displayName!.isNotEmpty)
+          ? cred.user!.displayName!
+          : 'User',
     );
+
+    return user;
+  }
+
+  @override
+  Future<AuthUser?> fetchUserProfile(String uid) async {
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(uid)
+          .get()
+          .timeout(const Duration(seconds: 5));
+
+      final data = doc.data();
+      if (data != null) {
+        return AuthUser.fromMap(uid, data);
+      }
+    } catch (e) {
+      // Network or permission fallback
+    }
+    return null;
+  }
+
+  @override
+  Future<void> syncUserProfile(AuthUser user) async {
+    try {
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .set(user.toMap(), SetOptions(merge: true))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Background sync non-fatal
+    }
   }
 
   @override
   Future<void> signOut() async {
-    await _auth.signOut();
+    await _auth.signOut().timeout(const Duration(seconds: 5));
   }
 
   @override
   Future<void> registerFcmToken(String uid) async {
     try {
-      final token = await _messaging.getToken();
-      if (token != null) {
-        await _firestore.collection('users').doc(uid).set({'fcmToken': token}, SetOptions(merge: true));
+      final token = await _messaging.getToken().timeout(const Duration(seconds: 4));
+      if (token != null && token.isNotEmpty) {
+        await _firestore
+            .collection('users')
+            .doc(uid)
+            .set({'fcmToken': token}, SetOptions(merge: true))
+            .timeout(const Duration(seconds: 5));
       }
     } catch (e) {
-      // Ignored if offline
+      // Ignored if offline or FCM unavailable
     }
   }
 
   @override
   Future<void> updateUserCoupleId({required String uid, required String coupleId}) async {
-    await _firestore.collection('users').doc(uid).set({'coupleId': coupleId}, SetOptions(merge: true));
+    try {
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .set({'coupleId': coupleId}, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Non-fatal
+    }
   }
 }
