@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Between Us — Private Long-Distance Space for Two</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;1,400&family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Global Top Bar & Sandbox Controls -->
+  <header class="sandbox-header">
+    <div class="logo-area">
+      <div class="app-icon">❤️</div>
+      <div>
+        <h1>Between Us <span class="badge-private">PRIVATE COUPLE SPACE</span></h1>
+        <p class="tagline">“We don’t help couples talk. We help them feel close when they can’t be together.”</p>
+      </div>
+    </div>
+
+    <!-- Live Simulation Control Deck -->
+    <div class="simulation-deck">
+      <div class="deck-item">
+        <label>Simulate Distance:</label>
+        <div class="slider-group">
+          <input type="range" id="distanceSlider" min="0" max="1500" value="1247" step="5">
+          <span id="sliderDistanceValue">1,247 km</span>
+        </div>
+      </div>
+      <div class="deck-actions">
+        <button class="btn-deck" onclick="simulateTogetherProximity()">❤️ Instant "Together" (< 50m)</button>
+        <button class="btn-deck" onclick="triggerDeviceAMissYou()">💌 Jeet sends "Miss You"</button>
+        <button class="btn-deck" onclick="triggerPartnerUpset()">😡 Ananya feels Upset</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dual Device Interactive Studio -->
+  <main class="device-studio">
+    <!-- DEVICE A: JEET -->
+    <div class="phone-frame" id="phoneA">
+      <div class="phone-notch"><span class="camera"></span></div>
+      <div class="phone-screen" id="screenA">
+        <!-- Dynamic App Content Container -->
+      </div>
+    </div>
+
+    <!-- Realtime Bridge Status Indicator -->
+    <div class="bridge-status">
+      <div class="pulse-line"></div>
+      <div class="bridge-badge">
+        <span class="dot live"></span>
+        <span>E2EE REALTIME SYNC (NTP OFFSET: 4ms)</span>
+      </div>
+      <div class="pulse-line"></div>
+    </div>
+
+    <!-- DEVICE B: ANANYA -->
+    <div class="phone-frame" id="phoneB">
+      <div class="phone-notch"><span class="camera"></span></div>
+      <div class="phone-screen" id="screenB">
+        <!-- Dynamic App Content Container -->
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

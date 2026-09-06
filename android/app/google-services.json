@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "69731259237",
+    "project_id": "between-us-eda3b",
+    "storage_bucket": "between-us-eda3b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:69731259237:android:f3b92ad3e86d5a525fc78c",
+        "android_client_info": {
+          "package_name": "com.betweenus.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwmr7wDhPZswd6DSOdd3jPQTo0vMmTyAw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

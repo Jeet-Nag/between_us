@@ -1,0 +1,51 @@
+name: between_us
+description: "A private, intimate long-distance couple application for exactly two connected partners."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Firebase Suite for Production Authentication, Database & Notifications
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.8
+  cloud_firestore: ^4.15.8
+  firebase_storage: ^11.6.9
+  firebase_messaging: ^14.7.19
+
+  # Native Hardware & Platform Capabilities
+  geolocator: ^11.0.0
+  record: ^5.0.4
+  just_audio: ^0.9.36
+  image_picker: ^1.0.7
+  file_picker: ^8.0.0
+  flutter_local_notifications: ^17.0.0
+  vibration: ^3.0.0
+
+  # State Management & UI Utilities
+  provider: ^6.1.1
+  google_fonts: ^6.1.0
+  intl: ^0.19.0
+  uuid: ^4.3.3
+  crypto: ^3.0.3
+  shared_preferences: ^2.2.2
+  cached_network_image: ^3.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+dependency_overrides:
+  record_platform_interface: 1.2.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audio/
+    - assets/images/

@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isCoupleMember(coupleId) {
+      return isAuthenticated() && 
+        request.auth.uid in firestore.get(/databases/(default)/documents/couples/$(coupleId)).data.members;
+    }
+
+    // Partition media strictly by coupleId
+    match /couples/{coupleId}/{allPaths=**} {
+      allow read, write: if isCoupleMember(coupleId);
+    }
+
+    // User avatar storage
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+  }
+}
