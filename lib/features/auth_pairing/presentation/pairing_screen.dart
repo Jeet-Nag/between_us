@@ -226,14 +226,14 @@ class _PairingScreenState extends State<PairingScreen> {
             children: [
               Text('INVITATION CODE', style: AppTypography.bodySmall.copyWith(letterSpacing: 1.5)),
               const SizedBox(height: 12),
-              if (state.isLoading)
+              if (state.isLoading && (pairingCode == null || pairingCode.isEmpty))
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryRose),
                 )
               else
                 Text(
-                  pairingCode ?? '......',
+                  (pairingCode != null && pairingCode.isNotEmpty) ? pairingCode : '......',
                   style: AppTypography.displayLarge.copyWith(
                     letterSpacing: 8.0,
                     color: AppColors.warmAmber,
@@ -241,7 +241,7 @@ class _PairingScreenState extends State<PairingScreen> {
                 ),
               const SizedBox(height: 16),
               TextButton.icon(
-                onPressed: pairingCode == null
+                onPressed: (pairingCode == null || pairingCode.isEmpty)
                     ? null
                     : () {
                         Clipboard.setData(ClipboardData(text: pairingCode));
@@ -271,10 +271,25 @@ class _PairingScreenState extends State<PairingScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.error.withOpacity(0.4)),
             ),
-            child: Text(
-              state.errorMessage!,
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMedium.copyWith(color: AppColors.error),
+            child: Column(
+              children: [
+                Text(
+                  state.errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyMedium.copyWith(color: AppColors.error),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    state.createSpace(
+                      myName: widget.userName,
+                      myUserId: widget.userId,
+                    );
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 16, color: AppColors.primaryRose),
+                  label: const Text('Retry Generating Code', style: TextStyle(color: AppColors.primaryRose)),
+                ),
+              ],
             ),
           ),
         ],

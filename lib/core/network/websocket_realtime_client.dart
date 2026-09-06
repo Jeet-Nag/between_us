@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'realtime_client.dart';
 import '../storage/local_storage_service.dart';
 
@@ -94,7 +95,18 @@ class WebSocketRealtimeClient implements RealtimeClient {
   }) async {
     _coupleId = coupleId;
     _userId = userId;
-    _token = token ?? 'local_spark_token_$userId';
+
+    if (token != null && token.isNotEmpty) {
+      _token = token;
+    } else {
+      try {
+        _token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      } catch (e) {
+        debugPrint('[WebSocketClient] Could not retrieve Firebase ID token: $e');
+      }
+      _token ??= 'local_spark_token_$userId';
+    }
+
     _manuallyClosed = false;
     _reconnectAttempts = 0;
     _lastKnownRevision = await _storage.getLastRevision();

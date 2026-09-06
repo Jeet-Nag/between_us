@@ -126,7 +126,7 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
       return PairingScreen(
         userName: user.displayName,
         userId: user.uid,
-        isCreating: coupleState.couple?.status == CoupleStatus.waitingForPartner,
+        isCreating: coupleState.couple?.status != CoupleStatus.connected,
       );
     }
 

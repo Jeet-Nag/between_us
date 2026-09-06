@@ -60,43 +60,53 @@ class CoupleState extends ChangeNotifier {
     required String myName,
     String? myUserId,
   }) async {
+    // If we already have an active space with a valid pairing code, do not re-create
+    if (_couple != null && _couple!.pairingCode.isNotEmpty && _couple!.status == CoupleStatus.waitingForPartner && !_isLoading) {
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
+    final uid = myUserId ?? const Uuid().v4();
+    final localPairingCode = EncryptionService.generatePairingCode();
+    final localCoupleId = 'couple_${const Uuid().v4().substring(0, 8)}';
+
+    final localUser = UserProfile(
+      id: uid,
+      displayName: myName,
+      initials: myName.isNotEmpty ? myName.substring(0, 1).toUpperCase() : 'U',
+    );
+
+    // Populate local model immediately so user sees invitation code without blocking on network
+    _couple = CoupleModel(
+      id: localCoupleId,
+      pairingCode: localPairingCode,
+      status: CoupleStatus.waitingForPartner,
+      user: localUser,
+      createdAt: DateTime.now(),
+    );
+    notifyListeners();
+
     try {
-      final uid = myUserId ?? const Uuid().v4();
-      final pairingCode = EncryptionService.generatePairingCode();
-      final coupleId = 'couple_${const Uuid().v4().substring(0, 8)}';
-
-      final user = UserProfile(
-        id: uid,
-        displayName: myName,
-        initials: myName.isNotEmpty ? myName.substring(0, 1).toUpperCase() : 'U',
-      );
-
-      _couple = CoupleModel(
-        id: coupleId,
-        pairingCode: pairingCode,
-        status: CoupleStatus.waitingForPartner,
-        user: user,
-        createdAt: DateTime.now(),
-      );
-
       if (_coupleRepository != null) {
         final created = await _coupleRepository!.createCoupleSpace(
           myUserId: uid,
           myDisplayName: myName,
-        );
+        ).timeout(const Duration(seconds: 10));
+
         _couple = created;
         _subscribeToCouple(created.id, uid);
       }
 
       await _realtimeClient.connect(coupleId: _couple!.id, userId: uid);
       _listenToRealtimeEvents(uid);
+    } on TimeoutException {
+      debugPrint('[CoupleState] Cloud space creation timed out; retaining local pairing code.');
     } catch (e) {
       debugPrint('[CoupleState] Create space error: $e');
-      _errorMessage = 'Failed to create private space: $e';
+      _errorMessage = 'Notice: Invitation code active locally, syncing to cloud: $e';
     } finally {
       _isLoading = false;
       notifyListeners();

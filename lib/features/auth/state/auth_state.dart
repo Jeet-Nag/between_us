@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/auth_repository.dart';
 
 class AuthState extends ChangeNotifier {
@@ -17,16 +18,34 @@ class AuthState extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  void _checkInitialAuth() {
+  void _checkInitialAuth() async {
     final current = _authRepository.currentUser;
     if (current != null) {
       _user = AuthUser(
         uid: current.uid,
         email: current.email ?? '',
-        displayName: current.displayName ?? 'User',
+        displayName: (current.displayName != null && current.displayName!.isNotEmpty) ? current.displayName! : 'User',
       );
-      _authRepository.registerFcmToken(current.uid);
       notifyListeners();
+
+      _authRepository.registerFcmToken(current.uid);
+
+      try {
+        final doc = await FirebaseFirestore.instance.collection('users').doc(current.uid).get().timeout(const Duration(seconds: 5));
+        final data = doc.data();
+        if (data != null) {
+          _user = AuthUser(
+            uid: current.uid,
+            email: current.email ?? '',
+            displayName: data['displayName'] ?? current.displayName ?? 'User',
+            coupleId: data['coupleId'],
+            fcmToken: data['fcmToken'],
+          );
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('[AuthState] Initial Firestore profile sync notice: $e');
+      }
     }
   }
 
