@@ -55,61 +55,68 @@ class CoupleState extends ChangeNotifier {
     }
   }
 
-  /// Creates a new Couple Space and generates a 6-character pairing code
+  /// Creates or restores a Couple Space with a verified authoritative 6-character pairing code
   Future<void> createSpace({
     required String myName,
     String? myUserId,
+    bool forceNew = false,
   }) async {
-    // If we already have an active space with a valid pairing code, do not re-create
-    if (_couple != null && _couple!.pairingCode.isNotEmpty && _couple!.status == CoupleStatus.waitingForPartner && !_isLoading) {
+    // If we already have an active space with a valid pairing code and not forcing new, reuse it
+    if (!forceNew && _couple != null && _couple!.pairingCode.isNotEmpty && _couple!.status == CoupleStatus.waitingForPartner && !_isLoading) {
       return;
     }
 
+    if (_isLoading) return;
+
     _isLoading = true;
     _errorMessage = null;
+    if (forceNew) {
+      _couple = null;
+    }
     notifyListeners();
 
     final uid = myUserId ?? const Uuid().v4();
-    final localPairingCode = EncryptionService.generatePairingCode();
-    final localCoupleId = 'couple_${const Uuid().v4().substring(0, 8)}';
-
-    final localUser = UserProfile(
-      id: uid,
-      displayName: myName,
-      initials: myName.isNotEmpty ? myName.substring(0, 1).toUpperCase() : 'U',
-    );
-
-    // Populate local model immediately so user sees invitation code without blocking on network
-    _couple = CoupleModel(
-      id: localCoupleId,
-      pairingCode: localPairingCode,
-      status: CoupleStatus.waitingForPartner,
-      user: localUser,
-      createdAt: DateTime.now(),
-    );
-    notifyListeners();
 
     try {
       if (_coupleRepository != null) {
         final created = await _coupleRepository!.createCoupleSpace(
           myUserId: uid,
           myDisplayName: myName,
-        ).timeout(const Duration(seconds: 10));
+          forceNew: forceNew,
+        ).timeout(const Duration(seconds: 12));
 
         _couple = created;
         _subscribeToCouple(created.id, uid);
+      } else {
+        // In-memory test environment fallback
+        final localPairingCode = EncryptionService.generatePairingCode();
+        final localCoupleId = 'couple_${const Uuid().v4().substring(0, 8)}';
+        _couple = CoupleModel(
+          id: localCoupleId,
+          pairingCode: localPairingCode,
+          status: CoupleStatus.waitingForPartner,
+          user: UserProfile(
+            id: uid,
+            displayName: myName,
+            initials: myName.isNotEmpty ? myName.substring(0, 1).toUpperCase() : 'U',
+          ),
+          createdAt: DateTime.now(),
+        );
       }
 
       // Initiate WebSocket connection in background without blocking state completion
-      _realtimeClient.connect(coupleId: _couple!.id, userId: uid).catchError((e) {
-        debugPrint('[CoupleState] Realtime WebSocket connection notice: $e');
-      });
-      _listenToRealtimeEvents(uid);
+      if (_couple != null) {
+        _realtimeClient.connect(coupleId: _couple!.id, userId: uid).catchError((e) {
+          debugPrint('[CoupleState] Realtime WebSocket connection notice: $e');
+        });
+        _listenToRealtimeEvents(uid);
+      }
     } on TimeoutException {
-      debugPrint('[CoupleState] Cloud space creation timed out; retaining local pairing code.');
+      debugPrint('[CoupleState] Cloud space creation timed out.');
+      _errorMessage = 'Could not create your invitation code. Please check your connection and tap Retry.';
     } catch (e) {
       debugPrint('[CoupleState] Create space error: $e');
-      _errorMessage = 'Notice: Invitation code active locally, syncing to cloud: $e';
+      _errorMessage = 'Could not create your invitation: ${e.toString().replaceAll('Exception:', '').trim()}';
     } finally {
       _isLoading = false;
       notifyListeners();

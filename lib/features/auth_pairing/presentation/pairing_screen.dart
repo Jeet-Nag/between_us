@@ -174,6 +174,8 @@ class _PairingScreenState extends State<PairingScreen> {
   }
 
   Widget _buildCreatorView(CoupleState state, String? pairingCode) {
+    final hasValidCode = pairingCode != null && pairingCode.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -207,7 +209,7 @@ class _PairingScreenState extends State<PairingScreen> {
         ),
         const SizedBox(height: 28),
 
-        // Pairing Code Display
+        // Pairing Code Display Container
         Container(
           padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
           decoration: BoxDecoration(
@@ -225,39 +227,55 @@ class _PairingScreenState extends State<PairingScreen> {
           child: Column(
             children: [
               Text('INVITATION CODE', style: AppTypography.bodySmall.copyWith(letterSpacing: 1.5)),
-              const SizedBox(height: 12),
-              if (state.isLoading && (pairingCode == null || pairingCode.isEmpty))
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryRose),
+              const SizedBox(height: 16),
+              if (state.isLoading && !hasValidCode)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
+                    children: [
+                      const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.primaryRose),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Generating your private invitation...',
+                        style: AppTypography.bodyMedium.copyWith(color: AppColors.textMuted),
+                      ),
+                    ],
+                  ),
                 )
-              else
+              else ...[
                 Text(
-                  (pairingCode != null && pairingCode.isNotEmpty) ? pairingCode : '......',
+                  hasValidCode ? pairingCode : '------',
                   style: AppTypography.displayLarge.copyWith(
                     letterSpacing: 8.0,
-                    color: AppColors.warmAmber,
+                    color: hasValidCode ? AppColors.warmAmber : AppColors.textMuted,
                   ),
                 ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                onPressed: (pairingCode == null || pairingCode.isEmpty)
-                    ? null
-                    : () {
-                        Clipboard.setData(ClipboardData(text: pairingCode));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Code copied to clipboard!'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.primaryRose),
-                label: Text(
-                  'Copy Code',
-                  style: AppTypography.titleMedium.copyWith(color: AppColors.primaryRose),
+                const SizedBox(height: 16),
+                TextButton.icon(
+                  onPressed: !hasValidCode
+                      ? null
+                      : () {
+                          Clipboard.setData(ClipboardData(text: pairingCode));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Code copied to clipboard!'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.copy_rounded, size: 18, color: AppColors.primaryRose),
+                  label: Text(
+                    'Copy Code',
+                    style: AppTypography.titleMedium.copyWith(
+                      color: hasValidCode ? AppColors.primaryRose : AppColors.textMuted,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -265,10 +283,10 @@ class _PairingScreenState extends State<PairingScreen> {
         if (state.errorMessage != null) ...[
           const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: AppColors.error.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.error.withOpacity(0.4)),
             ),
             child: Column(
@@ -278,39 +296,48 @@ class _PairingScreenState extends State<PairingScreen> {
                   textAlign: TextAlign.center,
                   style: AppTypography.bodyMedium.copyWith(color: AppColors.error),
                 ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () {
-                    state.createSpace(
-                      myName: widget.userName,
-                      myUserId: widget.userId,
-                    );
-                  },
-                  icon: const Icon(Icons.refresh_rounded, size: 16, color: AppColors.primaryRose),
-                  label: const Text('Retry Generating Code', style: TextStyle(color: AppColors.primaryRose)),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: state.isLoading
+                      ? null
+                      : () {
+                          state.createSpace(
+                            myName: widget.userName,
+                            myUserId: widget.userId,
+                            forceNew: true,
+                          );
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryRose,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Retry Generating Code'),
                 ),
               ],
             ),
           ),
         ],
 
-        const SizedBox(height: 32),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: AppColors.primaryRose,
+        if (hasValidCode) ...[
+          const SizedBox(height: 32),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primaryRose,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Text('Waiting for partner to join...', style: AppTypography.bodyMedium),
-          ],
-        ),
+              const SizedBox(width: 12),
+              Text('Waiting for partner to join...', style: AppTypography.bodyMedium),
+            ],
+          ),
+        ],
       ],
     );
   }

@@ -22,8 +22,11 @@ service cloud.firestore {
         (resource.data.status == 'waitingForPartner')
       );
       
-      // Query waiting couples strictly by pairingCode (for pairing handshake)
-      allow list: if isAuthenticated() && resource.data.status == 'waitingForPartner';
+      // Query waiting couples strictly by pairingCode or list user member couples
+      allow list: if isAuthenticated() && (
+        resource.data.status == 'waitingForPartner' ||
+        (resource.data.members != null && resource.data.members.hasAny([request.auth.uid]))
+      );
       
       // Allow creation of a new space: creator must be in the initial members array and members <= 2
       allow create: if isAuthenticated() &&

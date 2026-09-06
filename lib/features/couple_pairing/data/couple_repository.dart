@@ -4,8 +4,16 @@ import '../../../core/security/encryption_service.dart';
 
 abstract class CoupleRepository {
   Stream<CoupleModel?> watchCouple(String coupleId, String myUserId);
-  Future<CoupleModel> createCoupleSpace({required String myUserId, required String myDisplayName});
-  Future<CoupleModel?> joinCoupleSpace({required String myUserId, required String myDisplayName, required String pairingCode});
+  Future<CoupleModel> createCoupleSpace({
+    required String myUserId,
+    required String myDisplayName,
+    bool forceNew = false,
+  });
+  Future<CoupleModel?> joinCoupleSpace({
+    required String myUserId,
+    required String myDisplayName,
+    required String pairingCode,
+  });
   Future<void> updateCountdown({required String coupleId, required DateTime targetDate, required String title});
   Future<void> unpairSpace(String coupleId);
 }
@@ -73,39 +81,41 @@ class FirebaseCoupleRepository implements CoupleRepository {
   Future<CoupleModel> createCoupleSpace({
     required String myUserId,
     required String myDisplayName,
+    bool forceNew = false,
   }) async {
-    // 1. Check if user already has an existing waiting couple space
-    try {
-      final existingQuery = await _firestore
-          .collection('couples')
-          .where('members', arrayContains: myUserId)
-          .where('status', isEqualTo: 'waitingForPartner')
-          .limit(1)
-          .get()
-          .timeout(const Duration(seconds: 5));
-
-      if (existingQuery.docs.isNotEmpty) {
-        final doc = existingQuery.docs.first;
-        final data = doc.data();
-        final existingCode = data['pairingCode'] as String? ?? '';
-        if (existingCode.isNotEmpty) {
-          return CoupleModel(
-            id: doc.id,
-            pairingCode: existingCode,
-            status: CoupleStatus.waitingForPartner,
-            user: UserProfile(
-              id: myUserId,
-              displayName: myDisplayName,
-              initials: myDisplayName.isNotEmpty ? myDisplayName.substring(0, 1).toUpperCase() : 'U',
-            ),
-            createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-          );
+    // 1. If not forcing a brand-new space, check if user already has an existing waiting couple space
+    if (!forceNew) {
+      try {
+        final userDoc = await _firestore.collection('users').doc(myUserId).get().timeout(const Duration(seconds: 4));
+        final userData = userDoc.data();
+        final existingCoupleId = userData?['coupleId'] as String?;
+        if (existingCoupleId != null && existingCoupleId.isNotEmpty) {
+          final existingDoc = await _firestore.collection('couples').doc(existingCoupleId).get().timeout(const Duration(seconds: 4));
+          if (existingDoc.exists) {
+            final data = existingDoc.data()!;
+            final code = data['pairingCode'] as String? ?? '';
+            final status = data['status'] as String? ?? '';
+            if (status == 'waitingForPartner' && code.isNotEmpty) {
+              return CoupleModel(
+                id: existingCoupleId,
+                pairingCode: code,
+                status: CoupleStatus.waitingForPartner,
+                user: UserProfile(
+                  id: myUserId,
+                  displayName: myDisplayName,
+                  initials: myDisplayName.isNotEmpty ? myDisplayName.substring(0, 1).toUpperCase() : 'U',
+                ),
+                createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              );
+            }
+          }
         }
+      } catch (e) {
+        // Continue to create new space if check fails
       }
-    } catch (e) {
-      // Continue to create new space if query times out or fails
     }
 
+    // 2. Create and persist a brand-new authoritative couple document
     final coupleRef = _firestore.collection('couples').doc();
     final pairingCode = EncryptionService.generatePairingCode();
 
@@ -118,8 +128,10 @@ class FirebaseCoupleRepository implements CoupleRepository {
       'createdAt': FieldValue.serverTimestamp(),
     };
 
-    await coupleRef.set(coupleData).timeout(const Duration(seconds: 8));
+    // Atomically persist to Firestore with timeout
+    await coupleRef.set(coupleData).timeout(const Duration(seconds: 10));
 
+    // Update user profile with new coupleId
     try {
       await _firestore
           .collection('users')
@@ -127,9 +139,10 @@ class FirebaseCoupleRepository implements CoupleRepository {
           .set({'coupleId': coupleRef.id, 'displayName': myDisplayName}, SetOptions(merge: true))
           .timeout(const Duration(seconds: 5));
     } catch (e) {
-      // Non-fatal if user doc update times out
+      // Non-fatal
     }
 
+    // Return the authoritative model only after Firestore write succeeds
     return CoupleModel(
       id: coupleRef.id,
       pairingCode: pairingCode,
@@ -149,13 +162,14 @@ class FirebaseCoupleRepository implements CoupleRepository {
     required String myDisplayName,
     required String pairingCode,
   }) async {
+    final code = pairingCode.toUpperCase().trim();
     final query = await _firestore
         .collection('couples')
-        .where('pairingCode', isEqualTo: pairingCode.toUpperCase().trim())
+        .where('pairingCode', isEqualTo: code)
         .where('status', isEqualTo: 'waitingForPartner')
         .limit(1)
         .get()
-        .timeout(const Duration(seconds: 8));
+        .timeout(const Duration(seconds: 10));
 
     if (query.docs.isEmpty) return null;
 
@@ -165,6 +179,13 @@ class FirebaseCoupleRepository implements CoupleRepository {
     // Run atomic transaction to add user as the second member and activate couple
     await _firestore.runTransaction((transaction) async {
       final fresh = await transaction.get(coupleDoc.reference);
+      if (!fresh.exists) {
+        throw Exception('space_not_found');
+      }
+      final currentStatus = fresh.data()?['status'] as String?;
+      if (currentStatus != 'waitingForPartner') {
+        throw Exception('already_paired');
+      }
       final members = List<String>.from(fresh.data()?['members'] ?? []);
       if (!members.contains(myUserId)) {
         members.add(myUserId);
@@ -173,6 +194,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
       transaction.update(coupleDoc.reference, {
         'members': members,
         'status': 'connected',
+        'partnerId': myUserId,
         'connectedAt': FieldValue.serverTimestamp(),
       });
 
@@ -190,7 +212,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
 
     return CoupleModel(
       id: coupleId,
-      pairingCode: pairingCode,
+      pairingCode: code,
       status: CoupleStatus.connected,
       user: UserProfile(
         id: myUserId,

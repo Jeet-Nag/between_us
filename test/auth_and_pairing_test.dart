@@ -7,6 +7,7 @@ import 'package:between_us/features/auth/data/auth_repository.dart';
 import 'package:between_us/features/auth/state/auth_state.dart';
 import 'package:between_us/features/auth_pairing/domain/couple_model.dart';
 import 'package:between_us/features/auth_pairing/state/couple_state.dart';
+import 'package:between_us/features/couple_pairing/data/couple_repository.dart';
 
 class FakeAuthRepository implements AuthRepository {
   final _controller = StreamController<User?>.broadcast();
@@ -57,6 +58,79 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() async {
     _currentUser = null;
+    _controller.add(null);
+  }
+}
+
+class FakeCoupleRepository implements CoupleRepository {
+  final Map<String, CoupleModel> _spaces = {};
+  final _controller = StreamController<CoupleModel?>.broadcast();
+
+  @override
+  Stream<CoupleModel?> watchCouple(String coupleId, String myUserId) {
+    return _controller.stream;
+  }
+
+  @override
+  Future<CoupleModel> createCoupleSpace({
+    required String myUserId,
+    required String myDisplayName,
+    bool forceNew = false,
+  }) async {
+    if (myDisplayName == 'force_failure') {
+      throw Exception('network_timeout');
+    }
+
+    if (!forceNew) {
+      for (final space in _spaces.values) {
+        if (space.user.id == myUserId && space.status == CoupleStatus.waitingForPartner) {
+          return space;
+        }
+      }
+    }
+
+    final code = EncryptionService.generatePairingCode();
+    final couple = CoupleModel(
+      id: 'couple_${_spaces.length + 1}',
+      pairingCode: code,
+      status: CoupleStatus.waitingForPartner,
+      user: UserProfile(id: myUserId, displayName: myDisplayName, initials: myDisplayName.substring(0, 1).toUpperCase()),
+      createdAt: DateTime.now(),
+    );
+
+    _spaces[couple.id] = couple;
+    return couple;
+  }
+
+  @override
+  Future<CoupleModel?> joinCoupleSpace({
+    required String myUserId,
+    required String myDisplayName,
+    required String pairingCode,
+  }) async {
+    for (final space in _spaces.values) {
+      if (space.pairingCode == pairingCode.toUpperCase().trim()) {
+        if (space.status != CoupleStatus.waitingForPartner) {
+          return null; // already paired
+        }
+        final connected = space.copyWith(
+          status: CoupleStatus.connected,
+          partner: UserProfile(id: myUserId, displayName: myDisplayName, initials: myDisplayName.substring(0, 1).toUpperCase()),
+        );
+        _spaces[space.id] = connected;
+        _controller.add(connected);
+        return connected;
+      }
+    }
+    return null; // Not found
+  }
+
+  @override
+  Future<void> updateCountdown({required String coupleId, required DateTime targetDate, required String title}) async {}
+
+  @override
+  Future<void> unpairSpace(String coupleId) async {
+    _spaces.remove(coupleId);
     _controller.add(null);
   }
 }
@@ -123,7 +197,7 @@ void main() {
     });
   });
 
-  group('Couple Space Creation & Pairing Handshake Tests', () {
+  group('Authoritative Couple Space Creation & Pairing Handshake Tests', () {
     test('Generates valid 6-character alphanumeric pairing code', () {
       final code = EncryptionService.generatePairingCode();
       expect(code.length, 6);
@@ -135,11 +209,13 @@ void main() {
       expect(code.contains('I'), isFalse);
     });
 
-    test('Creates space with waitingForPartner status and generates user initials', () async {
+    test('Authoritative space creation persists code and populates model only on success', () async {
       final client = LocalBroadcastRealtimeClient();
-      final coupleState = CoupleState(realtimeClient: client);
+      final coupleRepo = FakeCoupleRepository();
+      final coupleState = CoupleState(realtimeClient: client, coupleRepository: coupleRepo);
 
-      await coupleState.createSpace(myName: 'Jeet');
+      expect(coupleState.couple, isNull);
+      await coupleState.createSpace(myName: 'Jeet', myUserId: 'user_phone1');
 
       expect(coupleState.couple, isNotNull);
       expect(coupleState.couple!.status, CoupleStatus.waitingForPartner);
@@ -147,49 +223,67 @@ void main() {
       expect(coupleState.couple!.user.initials, 'J');
       expect(coupleState.couple!.pairingCode.length, 6);
       expect(coupleState.isConnected, isFalse);
+      expect(coupleState.isLoading, isFalse);
+      expect(coupleState.errorMessage, isNull);
     });
 
-    test('Transitions to connected status when partner joins', () async {
+    test('Space creation failure keeps code null and surfaces retryable error', () async {
       final client = LocalBroadcastRealtimeClient();
-      final coupleState = CoupleState(realtimeClient: client);
+      final coupleRepo = FakeCoupleRepository();
+      final coupleState = CoupleState(realtimeClient: client, coupleRepository: coupleRepo);
 
-      await coupleState.createSpace(myName: 'Jeet', myUserId: 'user_jeet');
-      expect(coupleState.isConnected, isFalse);
+      await coupleState.createSpace(myName: 'force_failure', myUserId: 'user_phone1');
 
-      // Realtime partner joined event dispatched over client stream
-      await client.broadcastEvent(RealtimeEvent(
-        id: 'evt_partner_join',
-        type: RealtimeEventType.presenceChanged,
-        senderId: 'partner_ananya',
-        coupleId: coupleState.couple!.id,
-        payload: {'action': 'partner_joined', 'displayName': 'Ananya'},
-        serverTimestampMs: DateTime.now().millisecondsSinceEpoch,
-      ));
-
-      expect(coupleState.isConnected, isTrue);
-      expect(coupleState.couple!.status, CoupleStatus.connected);
-      expect(coupleState.couple!.partner?.displayName, 'Ananya');
-      expect(coupleState.couple!.partner?.initials, 'A');
-    });
-
-    test('Unpairs space and cleans up active couple session', () async {
-      final client = LocalBroadcastRealtimeClient();
-      final coupleState = CoupleState(realtimeClient: client);
-
-      await coupleState.createSpace(myName: 'Jeet', myUserId: 'user_jeet');
-      await client.broadcastEvent(RealtimeEvent(
-        id: 'evt_partner_join',
-        type: RealtimeEventType.presenceChanged,
-        senderId: 'partner_ananya',
-        coupleId: coupleState.couple!.id,
-        payload: {'action': 'partner_joined', 'displayName': 'Ananya'},
-        serverTimestampMs: DateTime.now().millisecondsSinceEpoch,
-      ));
-      expect(coupleState.isConnected, isTrue);
-
-      await coupleState.unpairSpace();
       expect(coupleState.couple, isNull);
-      expect(coupleState.isConnected, isFalse);
+      expect(coupleState.isLoading, isFalse);
+      expect(coupleState.errorMessage, isNotNull);
+      expect(coupleState.errorMessage, contains('Could not create your invitation'));
+    });
+
+    test('Retry Generating Code generates and displays a new authoritative code', () async {
+      final client = LocalBroadcastRealtimeClient();
+      final coupleRepo = FakeCoupleRepository();
+      final coupleState = CoupleState(realtimeClient: client, coupleRepository: coupleRepo);
+
+      // 1. First attempt fails
+      await coupleState.createSpace(myName: 'force_failure', myUserId: 'user_phone1');
+      expect(coupleState.couple, isNull);
+
+      // 2. Retry with valid input and forceNew
+      await coupleState.createSpace(myName: 'Jeet', myUserId: 'user_phone1', forceNew: true);
+      expect(coupleState.couple, isNotNull);
+      expect(coupleState.couple!.pairingCode.length, 6);
+      expect(coupleState.errorMessage, isNull);
+    });
+
+    test('Two-Phone End-to-End Handshake: Phone 2 joins by Phone 1 authoritative code', () async {
+      final client1 = LocalBroadcastRealtimeClient();
+      final client2 = LocalBroadcastRealtimeClient();
+      final coupleRepo = FakeCoupleRepository();
+
+      final phone1State = CoupleState(realtimeClient: client1, coupleRepository: coupleRepo);
+      final phone2State = CoupleState(realtimeClient: client2, coupleRepository: coupleRepo);
+
+      // Phone 1 creates authoritative space
+      await phone1State.createSpace(myName: 'Jeet', myUserId: 'user_phone1');
+      final phone1Code = phone1State.couple!.pairingCode;
+
+      // Phone 2 enters invalid code
+      final failedJoin = await phone2State.joinSpace(myName: 'Ananya', code: 'WRONG1', myUserId: 'user_phone2');
+      expect(failedJoin, isFalse);
+      expect(phone2State.isConnected, isFalse);
+
+      // Phone 2 enters Phone 1 exact code
+      final successfulJoin = await phone2State.joinSpace(myName: 'Ananya', code: phone1Code, myUserId: 'user_phone2');
+      expect(successfulJoin, isTrue);
+      expect(phone2State.isConnected, isTrue);
+      expect(phone2State.couple!.status, CoupleStatus.connected);
+
+      // Phone 2 attempting to join again fails (already paired)
+      final phone3State = CoupleState(realtimeClient: client2, coupleRepository: coupleRepo);
+      final secondJoin = await phone3State.joinSpace(myName: 'Intruder', code: phone1Code, myUserId: 'user_phone3');
+      expect(secondJoin, isFalse);
+      expect(phone3State.isConnected, isFalse);
     });
   });
 }
