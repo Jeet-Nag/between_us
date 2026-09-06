@@ -115,9 +115,10 @@ class FirebaseCoupleRepository implements CoupleRepository {
       }
     }
 
-    // 2. Create and persist a brand-new authoritative couple document
+    // 2. Create and persist a brand-new authoritative couple document and keyed invitation document
     final coupleRef = _firestore.collection('couples').doc();
     final pairingCode = EncryptionService.generatePairingCode();
+    final invRef = _firestore.collection('invitations').doc(pairingCode);
 
     final coupleData = {
       'id': coupleRef.id,
@@ -128,21 +129,27 @@ class FirebaseCoupleRepository implements CoupleRepository {
       'createdAt': FieldValue.serverTimestamp(),
     };
 
-    // Atomically persist to Firestore with timeout
-    await coupleRef.set(coupleData).timeout(const Duration(seconds: 10));
+    final invitationData = {
+      'code': pairingCode,
+      'coupleId': coupleRef.id,
+      'creatorId': myUserId,
+      'status': 'active',
+      'createdAt': FieldValue.serverTimestamp(),
+    };
 
-    // Update user profile with new coupleId
-    try {
-      await _firestore
-          .collection('users')
-          .doc(myUserId)
-          .set({'coupleId': coupleRef.id, 'displayName': myDisplayName}, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 5));
-    } catch (e) {
-      // Non-fatal
-    }
+    // Atomically persist both couple space and keyed invitation document
+    final batch = _firestore.batch();
+    batch.set(coupleRef, coupleData);
+    batch.set(invRef, invitationData);
+    batch.set(
+      _firestore.collection('users').doc(myUserId),
+      {'coupleId': coupleRef.id, 'displayName': myDisplayName},
+      SetOptions(merge: true),
+    );
 
-    // Return the authoritative model only after Firestore write succeeds
+    await batch.commit().timeout(const Duration(seconds: 10));
+
+    // Return the authoritative model only after atomic write succeeds
     return CoupleModel(
       id: coupleRef.id,
       pairingCode: pairingCode,
@@ -163,41 +170,64 @@ class FirebaseCoupleRepository implements CoupleRepository {
     required String pairingCode,
   }) async {
     final code = pairingCode.toUpperCase().trim();
-    final query = await _firestore
-        .collection('couples')
-        .where('pairingCode', isEqualTo: code)
-        .where('status', isEqualTo: 'waitingForPartner')
-        .limit(1)
+
+    // 1. Direct O(1) Keyed lookup of /invitations/$code (No collection scan / zero enumeration)
+    final invDoc = await _firestore
+        .collection('invitations')
+        .doc(code)
         .get()
-        .timeout(const Duration(seconds: 10));
+        .timeout(const Duration(seconds: 8));
 
-    if (query.docs.isEmpty) return null;
+    if (!invDoc.exists) return null;
 
-    final coupleDoc = query.docs.first;
-    final coupleId = coupleDoc.id;
+    final invData = invDoc.data()!;
+    final invStatus = invData['status'] as String? ?? '';
+    final coupleId = invData['coupleId'] as String? ?? '';
 
-    // Run atomic transaction to add user as the second member and activate couple
+    if (invStatus != 'active' || coupleId.isEmpty) {
+      return null;
+    }
+
+    final coupleRef = _firestore.collection('couples').doc(coupleId);
+    final invRef = _firestore.collection('invitations').doc(code);
+
+    // 2. Run atomic transaction to claim the invitation and activate couple
     await _firestore.runTransaction((transaction) async {
-      final fresh = await transaction.get(coupleDoc.reference);
-      if (!fresh.exists) {
+      final coupleSnap = await transaction.get(coupleRef);
+      final freshInvSnap = await transaction.get(invRef);
+
+      if (!coupleSnap.exists || !freshInvSnap.exists) {
         throw Exception('space_not_found');
       }
-      final currentStatus = fresh.data()?['status'] as String?;
-      if (currentStatus != 'waitingForPartner') {
+
+      final currentCoupleStatus = coupleSnap.data()?['status'] as String?;
+      final currentInvStatus = freshInvSnap.data()?['status'] as String?;
+
+      if (currentCoupleStatus != 'waitingForPartner' || currentInvStatus != 'active') {
         throw Exception('already_paired');
       }
-      final members = List<String>.from(fresh.data()?['members'] ?? []);
+
+      final members = List<String>.from(coupleSnap.data()?['members'] ?? []);
       if (!members.contains(myUserId)) {
         members.add(myUserId);
       }
 
-      transaction.update(coupleDoc.reference, {
+      // Update couple space to connected
+      transaction.update(coupleRef, {
         'members': members,
         'status': 'connected',
         'partnerId': myUserId,
         'connectedAt': FieldValue.serverTimestamp(),
       });
 
+      // Mark invitation as claimed
+      transaction.update(invRef, {
+        'status': 'claimed',
+        'claimedBy': myUserId,
+        'claimedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Update user's coupleId
       transaction.set(
         _firestore.collection('users').doc(myUserId),
         {'coupleId': coupleId, 'displayName': myDisplayName},
@@ -205,7 +235,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
       );
     }).timeout(const Duration(seconds: 10));
 
-    final updatedDoc = await _firestore.collection('couples').doc(coupleId).get().timeout(const Duration(seconds: 5));
+    final updatedDoc = await coupleRef.get().timeout(const Duration(seconds: 5));
     final data = updatedDoc.data() ?? {};
     final members = List<String>.from(data['members'] ?? []);
     final partnerId = members.firstWhere((id) => id != myUserId, orElse: () => '');
