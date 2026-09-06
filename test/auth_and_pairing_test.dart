@@ -116,9 +116,13 @@ class FakeCoupleRepository implements CoupleRepository {
         if (space.status != CoupleStatus.waitingForPartner) {
           throw InvalidPairingCodeException('Code "$pairingCode" is already paired or no longer waiting for partner.');
         }
-        final connected = space.copyWith(
+        final connected = CoupleModel(
+          id: space.id,
+          pairingCode: space.pairingCode,
           status: CoupleStatus.connected,
-          partner: UserProfile(id: myUserId, displayName: myDisplayName, initials: myDisplayName.substring(0, 1).toUpperCase()),
+          user: UserProfile(id: myUserId, displayName: myDisplayName, initials: myDisplayName.substring(0, 1).toUpperCase()),
+          partner: space.user,
+          createdAt: space.createdAt,
         );
         _spaces[space.id] = connected;
         _controller.add(connected);
@@ -301,13 +305,41 @@ void main() {
       expect(successfulJoin, isTrue);
       expect(phone2State.isConnected, isTrue);
       expect(phone2State.couple!.status, CoupleStatus.connected);
-      expect(phone2State.couple!.partner?.displayName, 'Ananya');
+      expect(phone2State.couple!.partner?.displayName, 'Jeet');
 
       // Phone 3 attempting to join already connected space fails
       final phone3State = CoupleState(realtimeClient: client2, coupleRepository: coupleRepo);
       final secondJoin = await phone3State.joinSpace(myName: 'Intruder', code: phone1Code, myUserId: 'user_phone3');
       expect(secondJoin, isFalse);
       expect(phone3State.isConnected, isFalse);
+    });
+
+    test('Valid second partner reads waiting invitation and joins atomically without permission errors', () async {
+      final client1 = LocalBroadcastRealtimeClient();
+      final client2 = LocalBroadcastRealtimeClient();
+      final coupleRepo = FakeCoupleRepository();
+
+      final phone1State = CoupleState(realtimeClient: client1, coupleRepository: coupleRepo);
+      final phone2State = CoupleState(realtimeClient: client2, coupleRepository: coupleRepo);
+
+      // 1. Phone 1 creates invitation
+      await phone1State.createSpace(myName: 'Jeet', myUserId: 'user_jeet');
+      final code = phone1State.couple!.pairingCode;
+      expect(code.isNotEmpty, isTrue);
+
+      // 2. Phone 2 joins by exact code
+      final joined = await phone2State.joinSpace(
+        myName: 'Ananya',
+        code: code,
+        myUserId: 'user_ananya',
+      );
+
+      expect(joined, isTrue);
+      expect(phone2State.isConnected, isTrue);
+      expect(phone2State.couple!.status, CoupleStatus.connected);
+      expect(phone2State.couple!.user.displayName, 'Ananya');
+      expect(phone2State.couple!.partner?.displayName, 'Jeet');
+      expect(phone2State.errorMessage, isNull);
     });
   });
 }

@@ -53,12 +53,15 @@ service cloud.firestore {
 
     // 2. Couples Collection: Strictly Protected Intimate Spaces
     match /couples/{coupleId} {
-      // Reading /couples/{coupleId}: ONLY existing members can read
-      allow get: if isAuthenticated() &&
-        resource.data.members != null &&
-        resource.data.members.hasAny([request.auth.uid]);
+      // Reading /couples/{coupleId}:
+      // 1. Existing members can read
+      // 2. An authenticated user can read a waiting couple space by exact coupleId during joining handshake
+      allow get: if isAuthenticated() && (
+        (resource.data.members != null && resource.data.members.hasAny([request.auth.uid])) ||
+        (resource.data.status == 'waitingForPartner')
+      );
       
-      // Listing /couples: ONLY own memberships
+      // Listing /couples: ONLY own memberships (never allow querying/listing stranger couples)
       allow list: if isAuthenticated() &&
         resource.data.members != null &&
         resource.data.members.hasAny([request.auth.uid]);
