@@ -28,6 +28,26 @@ class WebSocketRealtimeClient implements RealtimeClient {
   String? _token;
   String _serverUrl = _resolveServerUrl();
 
+  static const String defaultHttpBackendUrl = 'https://between-us-backend-xnur.onrender.com';
+  static const String defaultWsBackendUrl = 'wss://between-us-backend-xnur.onrender.com';
+
+  static String resolveHttpBackendUrl() {
+    const httpUrl = String.fromEnvironment('BACKEND_URL');
+    if (httpUrl.isNotEmpty) return httpUrl;
+
+    const wsUrl = String.fromEnvironment('BACKEND_WS_URL');
+    if (wsUrl.isNotEmpty) {
+      if (wsUrl.startsWith('wss://')) {
+        return wsUrl.replaceFirst('wss://', 'https://');
+      } else if (wsUrl.startsWith('ws://')) {
+        return wsUrl.replaceFirst('ws://', 'http://');
+      }
+      return wsUrl;
+    }
+
+    return defaultHttpBackendUrl;
+  }
+
   static String _resolveServerUrl() {
     const wsUrl = String.fromEnvironment('BACKEND_WS_URL');
     if (wsUrl.isNotEmpty) return wsUrl;
@@ -42,7 +62,7 @@ class WebSocketRealtimeClient implements RealtimeClient {
       return httpUrl;
     }
 
-    return 'wss://between-us-backend.onrender.com';
+    return defaultWsBackendUrl;
   }
 
   Timer? _heartbeatTimer;

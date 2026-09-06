@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:between_us/core/network/realtime_client.dart';
+import 'package:between_us/core/network/websocket_realtime_client.dart';
 
 void main() {
   group('Realtime Event Synchronization & Protocol Tests', () {
@@ -92,6 +93,14 @@ void main() {
 
       await sub.cancel();
       await client.disconnect();
+    });
+
+    test('WebSocketRealtimeClient resolves verified Render backend URLs', () {
+      final wsClient = WebSocketRealtimeClient();
+      expect(wsClient.serverUrl, 'wss://between-us-backend-xnur.onrender.com');
+      expect(WebSocketRealtimeClient.defaultWsBackendUrl, 'wss://between-us-backend-xnur.onrender.com');
+      expect(WebSocketRealtimeClient.defaultHttpBackendUrl, 'https://between-us-backend-xnur.onrender.com');
+      expect(WebSocketRealtimeClient.resolveHttpBackendUrl(), 'https://between-us-backend-xnur.onrender.com');
     });
   });
 }
