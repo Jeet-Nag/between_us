@@ -27,6 +27,8 @@ class LoveMomentOverlay extends StatelessWidget {
         return '${moment.senderName} sent you a sweet kiss 😘';
       case MomentType.loveNote:
         return 'Love Note from ${moment.senderName} 💌';
+      case MomentType.holdHands:
+        return 'Held hands with ${moment.senderName} 🫶';
     }
   }
 
@@ -40,6 +42,8 @@ class LoveMomentOverlay extends StatelessWidget {
         return Icons.sentiment_very_satisfied_rounded;
       case MomentType.loveNote:
         return Icons.mark_email_unread_rounded;
+      case MomentType.holdHands:
+        return Icons.favorite_rounded;
     }
   }
 
@@ -53,6 +57,8 @@ class LoveMomentOverlay extends StatelessWidget {
         return AppColors.softLavender;
       case MomentType.loveNote:
         return AppColors.tealProximity;
+      case MomentType.holdHands:
+        return AppColors.primaryRose;
     }
   }
 

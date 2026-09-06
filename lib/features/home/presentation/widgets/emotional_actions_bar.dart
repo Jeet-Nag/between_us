@@ -9,12 +9,14 @@ class EmotionalActionsBar extends StatelessWidget {
   final PresenceState presence;
   final MomentsEngine momentsEngine;
   final VoidCallback onOpenNoteDialog;
+  final VoidCallback onOpenHoldHands;
 
   const EmotionalActionsBar({
     super.key,
     required this.presence,
     required this.momentsEngine,
     required this.onOpenNoteDialog,
+    required this.onOpenHoldHands,
   });
 
   void _triggerMoment(BuildContext context, MomentType type) {
@@ -34,6 +36,9 @@ class EmotionalActionsBar extends StatelessWidget {
         break;
       case MomentType.loveNote:
         label = 'Love Note sent 💌';
+        break;
+      case MomentType.holdHands:
+        label = 'Hold Hands sent 🫶';
         break;
     }
 
@@ -135,6 +140,61 @@ class EmotionalActionsBar extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+
+        // Hold Hands Special Featured Action
+        InkWell(
+          onTap: onOpenHoldHands,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primaryRose.withOpacity(0.18),
+                  AppColors.warmAmber.withOpacity(0.15),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.primaryRose.withOpacity(0.4)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primaryRoseSoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.favorite_rounded, color: AppColors.primaryRose, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text('Hold Hands Together', style: AppTypography.titleMedium.copyWith(fontSize: 15)),
+                          const SizedBox(width: 6),
+                          const Text('🫶', style: TextStyle(fontSize: 16)),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Touch and hold screen with synchronized vibrations',
+                        style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.primaryRose),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 10),
 

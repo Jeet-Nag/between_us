@@ -29,6 +29,13 @@ class AuthState extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  void clearCoupleId() {
+    if (_user != null) {
+      _user = _user!.copyWith(coupleId: '');
+      notifyListeners();
+    }
+  }
+
   void _initAuth() {
     // 1. Synchronously restore any cached Firebase session on boot
     final current = _authRepository.currentUser;

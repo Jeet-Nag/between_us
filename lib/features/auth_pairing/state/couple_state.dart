@@ -292,14 +292,17 @@ class CoupleState extends ChangeNotifier {
   }
 
   /// Unpairs the couple space and securely resets
-  Future<void> unpairSpace() async {
-    if (_couple != null && _coupleRepository != null) {
-      await _coupleRepository!.unpairSpace(_couple!.id);
+  Future<void> unpairSpace({String? myUserId}) async {
+    final coupleId = _couple?.id;
+    if (coupleId != null && _coupleRepository != null) {
+      await _coupleRepository!.unpairSpace(coupleId, myUserId: myUserId);
     }
     await _realtimeClient.disconnect();
     _coupleSubscription?.cancel();
     _realtimeSubscription?.cancel();
     _couple = null;
+    _isLoading = false;
+    _errorMessage = null;
     notifyListeners();
   }
 

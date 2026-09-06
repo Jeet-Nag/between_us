@@ -5,6 +5,8 @@ import '../../../core/constants/typography.dart';
 import '../../../core/network/websocket_realtime_client.dart';
 import '../../auth/state/auth_state.dart';
 import '../../auth_pairing/state/couple_state.dart';
+import '../../call/state/call_state.dart';
+import '../../call/presentation/call_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
             const Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 24),
@@ -40,10 +43,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () {
-              coupleState.unpairSpace();
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: () async {
               Navigator.pop(ctx);
+              final authState = context.read<AuthState>();
+              final uid = authState.user?.uid;
+              await coupleState.unpairSpace(myUserId: uid);
+              authState.clearCoupleId();
             },
             child: const Text('Confirm Disconnect', style: TextStyle(color: Colors.white)),
           ),
@@ -52,43 +61,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _startPrivateCall(BuildContext context, String mode) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceElevated,
-        title: Row(
-          children: [
-            const Icon(Icons.videocam_rounded, color: AppColors.primaryRose),
-            const SizedBox(width: 8),
-            Text('Private Call ($mode)', style: AppTypography.titleLarge),
-          ],
+  void _startPrivateCall(BuildContext context, String mode, String partnerName) {
+    final callState = context.read<CallState>();
+    callState.startCall(mode: mode, isVideo: true);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          partnerName: partnerName,
+          initialMode: mode,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: const BoxDecoration(
-                color: AppColors.primaryRoseSoft,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.favorite_rounded, color: AppColors.primaryRose, size: 36),
-            ),
-            const SizedBox(height: 16),
-            Text('Calling Partner...', style: AppTypography.titleMedium),
-            const SizedBox(height: 6),
-            Text('End-to-End Encrypted Session', style: AppTypography.bodySmall),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('End Call', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }
@@ -168,7 +151,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         backgroundColor: AppColors.primaryRose,
                         visualDensity: VisualDensity.compact,
                       ),
-                      onPressed: () => _startPrivateCall(context, _callContext),
+                      onPressed: () => _startPrivateCall(
+                        context,
+                        _callContext,
+                        couple?.partner?.displayName ?? 'Partner',
+                      ),
                       child: const Text('Start Call', style: TextStyle(color: Colors.white, fontSize: 12)),
                     ),
                   ),

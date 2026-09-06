@@ -136,7 +136,7 @@ class FakeCoupleRepository implements CoupleRepository {
   Future<void> updateCountdown({required String coupleId, required DateTime targetDate, required String title}) async {}
 
   @override
-  Future<void> unpairSpace(String coupleId) async {
+  Future<void> unpairSpace(String coupleId, {String? myUserId}) async {
     _spaces.remove(coupleId);
     _controller.add(null);
   }

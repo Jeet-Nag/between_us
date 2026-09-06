@@ -5,6 +5,7 @@ import '../../../core/constants/typography.dart';
 import '../../auth_pairing/state/couple_state.dart';
 import '../../countdown/presentation/widgets/meeting_countdown_card.dart';
 import '../../de_escalation/presentation/make_up_dialog.dart';
+import '../../moments/presentation/hold_hands_dialog.dart';
 import '../../moments/presentation/love_moment_overlay.dart';
 import '../../moments/service/moments_engine.dart';
 import '../state/presence_state.dart';
@@ -126,6 +127,15 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showHoldHandsDialog(BuildContext context, String partnerName) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useSafeArea: false,
+      builder: (_) => HoldHandsDialog(partnerName: partnerName),
     );
   }
 
@@ -267,6 +277,7 @@ class HomeScreen extends StatelessWidget {
                   presence: presenceState,
                   momentsEngine: momentsEngine,
                   onOpenNoteDialog: () => _showSendNoteDialog(context, momentsEngine),
+                  onOpenHoldHands: () => _showHoldHandsDialog(context, partnerName),
                 ),
                 const SizedBox(height: 24),
               ],

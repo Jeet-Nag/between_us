@@ -29,6 +29,7 @@ import 'features/memories/data/memories_repository.dart';
 import 'features/memories/presentation/memories_screen.dart';
 import 'features/memories/state/memories_state.dart';
 import 'features/moments/service/moments_engine.dart';
+import 'features/call/state/call_state.dart';
 import 'features/settings/presentation/settings_screen.dart';
 
 @pragma('vm:entry-point')
@@ -206,6 +207,7 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
             myUserId: user.uid,
             myName: user.displayName,
             partnerId: couple.partner?.id ?? '',
+            realtimeClient: realtimeClient,
           ),
         ),
         ChangeNotifierProvider(
@@ -232,6 +234,15 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
             coupleId: couple.id,
             myUserId: user.uid,
             myName: user.displayName,
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => CallState(
+            realtimeClient: realtimeClient,
+            coupleId: couple.id,
+            myUserId: user.uid,
+            myName: user.displayName,
+            partnerName: couple.partner?.displayName ?? 'Partner',
           ),
         ),
       ],

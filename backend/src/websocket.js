@@ -259,7 +259,19 @@ async function handleClientEvent(ws, event) {
     'MUSIC_SESSION_UPDATE',
     'MEMORY_CREATED',
     'MEMORY_UPDATED',
-    'MEMORY_DELETED'
+    'MEMORY_DELETED',
+    'HOLD_HANDS_START',
+    'HOLD_HANDS_STOP',
+    'holdHandsStart',
+    'holdHandsStop',
+    'CALL_OFFER',
+    'CALL_ANSWER',
+    'CALL_ICE_CANDIDATE',
+    'CALL_END',
+    'callOffer',
+    'callAnswer',
+    'callIceCandidate',
+    'callEnd'
   ];
 
   if (supportedTypes.includes(type)) {

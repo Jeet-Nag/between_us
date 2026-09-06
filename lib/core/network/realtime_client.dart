@@ -18,6 +18,12 @@ enum RealtimeEventType {
   presenceChanged,
   countdownUpdated,
   memoryAdded,
+  holdHandsStart,
+  holdHandsStop,
+  callOffer,
+  callAnswer,
+  callEnd,
+  callIceCandidate,
 }
 
 class RealtimeEvent {
@@ -83,7 +89,7 @@ class LocalBroadcastRealtimeClient implements RealtimeClient {
   factory LocalBroadcastRealtimeClient() => _instance;
   LocalBroadcastRealtimeClient._internal();
 
-  final _controller = StreamController<RealtimeEvent>.broadcast();
+  StreamController<RealtimeEvent> _controller = StreamController<RealtimeEvent>.broadcast();
   bool _connected = false;
   String? _coupleId;
   String? _userId;
@@ -92,13 +98,21 @@ class LocalBroadcastRealtimeClient implements RealtimeClient {
   String? get currentUserId => _userId;
 
   @override
-  Stream<RealtimeEvent> get eventStream => _controller.stream;
+  Stream<RealtimeEvent> get eventStream {
+    if (_controller.isClosed) {
+      _controller = StreamController<RealtimeEvent>.broadcast();
+    }
+    return _controller.stream;
+  }
 
   @override
   bool get isConnected => _connected;
 
   @override
   Future<void> connect({required String coupleId, required String userId}) async {
+    if (_controller.isClosed) {
+      _controller = StreamController<RealtimeEvent>.broadcast();
+    }
     _coupleId = coupleId;
     _userId = userId;
     _connected = true;
@@ -115,13 +129,23 @@ class LocalBroadcastRealtimeClient implements RealtimeClient {
 
   @override
   Future<void> broadcastEvent(RealtimeEvent event) async {
+    if (_controller.isClosed) {
+      _controller = StreamController<RealtimeEvent>.broadcast();
+    }
     if (!_connected) {
       debugPrint('[RealtimeClient] Warning: broadcasting while offline, caching event ${event.id}');
     }
     _controller.add(event);
   }
 
+  void resetForTesting() {
+    _controller = StreamController<RealtimeEvent>.broadcast();
+    _connected = false;
+    _coupleId = null;
+    _userId = null;
+  }
+
   void dispose() {
-    _controller.close();
+    disconnect();
   }
 }

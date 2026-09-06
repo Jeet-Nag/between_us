@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../auth_pairing/domain/couple_model.dart';
 import '../../../core/security/encryption_service.dart';
@@ -29,7 +30,7 @@ abstract class CoupleRepository {
     required String pairingCode,
   });
   Future<void> updateCountdown({required String coupleId, required DateTime targetDate, required String title});
-  Future<void> unpairSpace(String coupleId);
+  Future<void> unpairSpace(String coupleId, {String? myUserId});
 }
 
 class FirebaseCoupleRepository implements CoupleRepository {
@@ -308,9 +309,42 @@ class FirebaseCoupleRepository implements CoupleRepository {
   }
 
   @override
-  Future<void> unpairSpace(String coupleId) async {
-    await _firestore.collection('couples').doc(coupleId).update({
-      'status': 'disconnected',
-    }).timeout(const Duration(seconds: 5));
+  Future<void> unpairSpace(String coupleId, {String? myUserId}) async {
+    try {
+      final coupleRef = _firestore.collection('couples').doc(coupleId);
+      final doc = await coupleRef.get().timeout(const Duration(seconds: 4));
+      
+      final batch = _firestore.batch();
+      batch.update(coupleRef, {
+        'status': 'disconnected',
+        'disconnectedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (doc.exists) {
+        final data = doc.data() ?? {};
+        final members = List<String>.from(data['members'] ?? []);
+        for (final memberId in members) {
+          if (memberId.isNotEmpty) {
+            batch.set(
+              _firestore.collection('users').doc(memberId),
+              {'coupleId': ''},
+              SetOptions(merge: true),
+            );
+          }
+        }
+      }
+
+      if (myUserId != null && myUserId.isNotEmpty) {
+        batch.set(
+          _firestore.collection('users').doc(myUserId),
+          {'coupleId': ''},
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit().timeout(const Duration(seconds: 6));
+    } catch (e) {
+      debugPrint('[FirebaseCoupleRepository] unpairSpace error: $e');
+    }
   }
 }
