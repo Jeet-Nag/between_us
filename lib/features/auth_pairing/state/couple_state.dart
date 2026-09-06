@@ -197,9 +197,25 @@ class CoupleState extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return true;
+    } on SelfPairingException catch (e) {
+      debugPrint('[CoupleState] Self pairing attempt rejected: $e');
+      _errorMessage = e.message;
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } on InvalidPairingCodeException catch (e) {
+      debugPrint('[CoupleState] Invalid pairing code: $e');
+      _errorMessage = e.message;
+      _isLoading = false;
+      notifyListeners();
+      return false;
     } catch (e) {
       debugPrint('[CoupleState] Join space error: $e');
-      _errorMessage = 'Connection error while joining space: $e';
+      if (e.toString().contains('self_pairing')) {
+        _errorMessage = "You can't use your own invitation code. Ask your partner to join.";
+      } else {
+        _errorMessage = 'Connection error while joining space: ${e.toString().replaceAll('Exception:', '').trim()}';
+      }
       _isLoading = false;
       notifyListeners();
       return false;

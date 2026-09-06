@@ -110,8 +110,11 @@ class FakeCoupleRepository implements CoupleRepository {
   }) async {
     for (final space in _spaces.values) {
       if (space.pairingCode == pairingCode.toUpperCase().trim()) {
+        if (space.user.id == myUserId) {
+          throw const SelfPairingException("You can't use your own invitation code. Ask your partner to join.");
+        }
         if (space.status != CoupleStatus.waitingForPartner) {
-          return null; // already paired
+          throw InvalidPairingCodeException('Code "$pairingCode" is already paired or no longer waiting for partner.');
         }
         final connected = space.copyWith(
           status: CoupleStatus.connected,
@@ -227,6 +230,26 @@ void main() {
       expect(coupleState.errorMessage, isNull);
     });
 
+    test('Self-pairing is strictly rejected: creator cannot use own code', () async {
+      final client = LocalBroadcastRealtimeClient();
+      final coupleRepo = FakeCoupleRepository();
+      final coupleState = CoupleState(realtimeClient: client, coupleRepository: coupleRepo);
+
+      await coupleState.createSpace(myName: 'Jeet', myUserId: 'user_phone1');
+      final code = coupleState.couple!.pairingCode;
+
+      // Phone 1 attempts to enter its own code
+      final selfJoinSuccess = await coupleState.joinSpace(
+        myName: 'Jeet',
+        code: code,
+        myUserId: 'user_phone1',
+      );
+
+      expect(selfJoinSuccess, isFalse);
+      expect(coupleState.isConnected, isFalse);
+      expect(coupleState.errorMessage, "You can't use your own invitation code. Ask your partner to join.");
+    });
+
     test('Space creation failure keeps code null and surfaces retryable error', () async {
       final client = LocalBroadcastRealtimeClient();
       final coupleRepo = FakeCoupleRepository();
@@ -256,7 +279,7 @@ void main() {
       expect(coupleState.errorMessage, isNull);
     });
 
-    test('Two-Phone End-to-End Handshake: Phone 2 joins by Phone 1 authoritative code', () async {
+    test('Two-Phone End-to-End Handshake: Phone 2 joins Phone 1 with real partner names', () async {
       final client1 = LocalBroadcastRealtimeClient();
       final client2 = LocalBroadcastRealtimeClient();
       final coupleRepo = FakeCoupleRepository();
@@ -278,8 +301,9 @@ void main() {
       expect(successfulJoin, isTrue);
       expect(phone2State.isConnected, isTrue);
       expect(phone2State.couple!.status, CoupleStatus.connected);
+      expect(phone2State.couple!.partner?.displayName, 'Ananya');
 
-      // Phone 2 attempting to join again fails (already paired)
+      // Phone 3 attempting to join already connected space fails
       final phone3State = CoupleState(realtimeClient: client2, coupleRepository: coupleRepo);
       final secondJoin = await phone3State.joinSpace(myName: 'Intruder', code: phone1Code, myUserId: 'user_phone3');
       expect(secondJoin, isFalse);

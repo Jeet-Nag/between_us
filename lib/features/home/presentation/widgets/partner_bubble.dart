@@ -8,7 +8,7 @@ class PartnerBubble extends StatelessWidget {
   final String initials;
   final bool isMe;
   final MoodType mood;
-  final int batteryLevel;
+  final int? batteryLevel;
   final bool isOnline;
   final VoidCallback? onTap;
 
@@ -18,7 +18,7 @@ class PartnerBubble extends StatelessWidget {
     required this.initials,
     required this.isMe,
     required this.mood,
-    required this.batteryLevel,
+    this.batteryLevel,
     this.isOnline = true,
     this.onTap,
   });
@@ -115,16 +115,29 @@ class PartnerBubble extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                batteryLevel > 20 ? Icons.battery_charging_full_rounded : Icons.battery_alert_rounded,
-                size: 13,
-                color: batteryLevel > 20 ? AppColors.textMuted : AppColors.warning,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '$batteryLevel%',
-                style: AppTypography.bodySmall,
-              ),
+              if (batteryLevel != null) ...[
+                Icon(
+                  batteryLevel! > 20 ? Icons.battery_charging_full_rounded : Icons.battery_alert_rounded,
+                  size: 13,
+                  color: batteryLevel! > 20 ? AppColors.textMuted : AppColors.warning,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '$batteryLevel%',
+                  style: AppTypography.bodySmall,
+                ),
+              ] else ...[
+                const Icon(
+                  Icons.battery_unknown_rounded,
+                  size: 13,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Battery unavailable',
+                  style: AppTypography.bodySmall.copyWith(fontSize: 10, color: AppColors.textMuted),
+                ),
+              ],
             ],
           ),
         ],

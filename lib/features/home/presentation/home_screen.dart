@@ -206,7 +206,7 @@ class HomeScreen extends StatelessWidget {
                         initials: couple?.user.initials ?? 'Y',
                         isMe: true,
                         mood: presenceState.myMood,
-                        batteryLevel: presenceState.myLocation?.batteryLevel ?? 100,
+                        batteryLevel: presenceState.myBatteryLevel,
                         isOnline: true,
                       ),
                       
@@ -232,7 +232,7 @@ class HomeScreen extends StatelessWidget {
                         initials: couple?.partner?.initials ?? 'P',
                         isMe: false,
                         mood: presenceState.partnerMood,
-                        batteryLevel: presenceState.partnerLocation?.batteryLevel ?? 85,
+                        batteryLevel: presenceState.partnerLocation?.batteryLevel,
                         isOnline: presenceState.isPartnerOnline,
                       ),
                     ],

@@ -32,12 +32,14 @@ service cloud.firestore {
         request.resource.data.code == code &&
         request.resource.data.coupleId != null;
 
-      // Update: only claiming partner during handshake or creator deactivating
+      // Update: only claiming partner (cannot be creator) during handshake or creator deactivating
       allow update: if isAuthenticated() && (
         (
           resource.data.status == 'active' &&
           request.resource.data.status == 'claimed' &&
+          request.auth.uid != resource.data.creatorId &&
           request.resource.data.claimedBy == request.auth.uid &&
+          request.resource.data.claimedBy != resource.data.creatorId &&
           request.resource.data.code == resource.data.code &&
           request.resource.data.coupleId == resource.data.coupleId &&
           request.resource.data.creatorId == resource.data.creatorId
@@ -68,7 +70,7 @@ service cloud.firestore {
         request.resource.data.members == [request.auth.uid] &&
         request.resource.data.status == 'waitingForPartner';
       
-      // Updating space: existing members OR joining partner during atomic transaction
+      // Updating space: existing members OR joining partner (cannot be creator) during atomic transaction
       allow update: if isAuthenticated() && (
         // Existing members updating (e.g. countdown, settings)
         (resource.data.members != null && resource.data.members.hasAny([request.auth.uid])) ||
@@ -76,6 +78,7 @@ service cloud.firestore {
         (
           resource.data.status == 'waitingForPartner' &&
           resource.data.members.size() == 1 &&
+          request.auth.uid != resource.data.creatorId &&
           !resource.data.members.hasAny([request.auth.uid]) &&
           request.resource.data.members.size() == 2 &&
           request.resource.data.members.hasAll(resource.data.members) &&
@@ -88,17 +91,33 @@ service cloud.firestore {
       
       allow delete: if isCoupleMember(coupleId);
 
-      // Private Subcollections: locations, messages, moments, music, memories, presence
-      // Strictly accessible ONLY by verified couple members
+      // Subcollections with user-scoped write constraints
+      match /locations/{userId} {
+        allow read: if isCoupleMember(coupleId);
+        allow write: if isCoupleMember(coupleId) && request.auth.uid == userId;
+      }
+
+      match /presence/{userId} {
+        allow read: if isCoupleMember(coupleId);
+        allow write: if isCoupleMember(coupleId) && request.auth.uid == userId;
+      }
+
+      // Other intimate subcollections: messages, moments, music, memories
       match /{subCollection}/{document=**} {
         allow read, write: if isCoupleMember(coupleId);
       }
     }
     
     // User profile documents (FCM device tokens, display names)
-    // Strictly private: A user can ONLY read and write their OWN profile document
+    // A user can read their own profile, or their verified paired partner can read their profile
     match /users/{userId} {
-      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        (
+          resource.data.coupleId != null &&
+          isCoupleMember(resource.data.coupleId)
+        )
+      );
       allow write: if isAuthenticated() && request.auth.uid == userId;
     }
   }

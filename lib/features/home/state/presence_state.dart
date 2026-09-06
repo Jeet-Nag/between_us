@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../../../core/constants/colors.dart';
 import '../../../../core/utils/distance_calculator.dart';
+import '../../battery/service/native_battery_service.dart';
 import '../../location/data/location_repository.dart';
 import '../../location/service/native_location_service.dart';
 
@@ -26,7 +28,7 @@ class PartnerLocation {
   final double longitude;
   final double accuracy;
   final DateTime updatedAt;
-  final int batteryLevel;
+  final int? batteryLevel;
   final bool isCharging;
 
   const PartnerLocation({
@@ -34,12 +36,13 @@ class PartnerLocation {
     required this.longitude,
     required this.accuracy,
     required this.updatedAt,
-    this.batteryLevel = 85,
+    this.batteryLevel,
     this.isCharging = false,
   });
 }
 
 class PresenceState extends ChangeNotifier {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final LocationRepository _locationRepository;
   final String _myUserId;
   final String _coupleId;
@@ -47,6 +50,8 @@ class PresenceState extends ChangeNotifier {
 
   PartnerLocation? _myLocation;
   PartnerLocation? _partnerLocation;
+  int? _myBatteryLevel;
+  bool _myIsCharging = false;
   MoodType _myMood = MoodType.loving;
   MoodType _partnerMood = MoodType.loving;
   bool _isPartnerOnline = false;
@@ -55,14 +60,17 @@ class PresenceState extends ChangeNotifier {
   ProximityResult _proximity = const ProximityResult(
     distanceInMeters: 0,
     state: ProximityState.longDistance,
-    formattedDistance: 'Awaiting Location…',
+    formattedDistance: 'Location unavailable',
     emotionalSubtitle: 'Connected across distances.',
     stateColor: AppColors.proximityLong,
   );
 
   StreamSubscription? _partnerLocationSubscription;
   StreamSubscription? _nativeLocationSubscription;
+  StreamSubscription? _partnerPresenceSubscription;
+  StreamSubscription? _batterySubscription;
   Timer? _freshnessTimer;
+  Timer? _batteryPeriodicTimer;
 
   PresenceState({
     required LocationRepository locationRepository,
@@ -73,33 +81,41 @@ class PresenceState extends ChangeNotifier {
         _myUserId = myUserId,
         _coupleId = coupleId,
         _partnerId = partnerId {
+    _initBattery();
     _startLocationStreaming();
     _listenToPartnerLocation();
+    _listenToPartnerPresence();
+    _publishMyPresence();
     _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) => notifyListeners());
+    _batteryPeriodicTimer = Timer.periodic(const Duration(minutes: 5), (_) => _syncBatteryLevel());
   }
 
   PartnerLocation? get myLocation => _myLocation;
   PartnerLocation? get partnerLocation => _partnerLocation;
+  int? get myBatteryLevel => _myBatteryLevel;
+  bool get myIsCharging => _myIsCharging;
   MoodType get myMood => _myMood;
   MoodType get partnerMood => _partnerMood;
   bool get isPartnerOnline => _isPartnerOnline;
   bool get isLocationSharingEnabled => _isLocationSharingEnabled;
   ProximityResult get proximity => _proximity;
 
-  /// Computes human-readable location freshness without deceptive "LIVE" labels on stale data
+  /// Computes accurate, honest location freshness without fake "LIVE" labels
   String get partnerFreshnessLabel {
-    if (!_isLocationSharingEnabled) return 'LOCATION SHARING OFF';
-    if (_partnerLocation == null) return 'WAITING FOR LOCATION…';
+    if (!_isLocationSharingEnabled) return 'Location sharing is off';
+    if (_partnerLocation == null) return 'Waiting for location…';
 
     final diff = DateTime.now().difference(_partnerLocation!.updatedAt);
-    if (diff.inMinutes < 3) {
-      return 'LIVE';
+    if (diff.inSeconds < 30) {
+      return 'Live';
+    } else if (diff.inMinutes < 5) {
+      return 'Recently updated';
     } else if (diff.inMinutes < 60) {
-      return 'UPDATED ${diff.inMinutes}M AGO';
+      return 'Last updated ${diff.inMinutes}m ago';
     } else if (diff.inHours < 24) {
-      return 'UPDATED ${diff.inHours}H AGO';
+      return 'Last updated ${diff.inHours}h ago';
     } else {
-      return 'OFFLINE';
+      return 'Offline';
     }
   }
 
@@ -108,14 +124,42 @@ class PresenceState extends ChangeNotifier {
     return DateTime.now().difference(_partnerLocation!.updatedAt).inMinutes >= 15;
   }
 
+  Future<void> _initBattery() async {
+    _myBatteryLevel = await NativeBatteryService.getBatteryLevel();
+    _myIsCharging = await NativeBatteryService.isCharging();
+    notifyListeners();
+
+    _batterySubscription = NativeBatteryService.onBatteryStateChanged.listen((_) async {
+      await _syncBatteryLevel();
+    });
+  }
+
+  Future<void> _syncBatteryLevel() async {
+    final level = await NativeBatteryService.getBatteryLevel();
+    final charging = await NativeBatteryService.isCharging();
+    _myBatteryLevel = level;
+    _myIsCharging = charging;
+    notifyListeners();
+
+    if (_coupleId.isNotEmpty && _myUserId.isNotEmpty) {
+      _locationRepository.updateBattery(
+        coupleId: _coupleId,
+        myUserId: _myUserId,
+        batteryLevel: level,
+        isCharging: charging,
+      );
+    }
+  }
+
   void _startLocationStreaming() async {
     final hasPermission = await NativeLocationService.ensurePermission();
     if (!hasPermission) {
-      debugPrint('[Presence] Native location permission denied by user.');
+      debugPrint('[Presence] Location permission unavailable or denied.');
+      _recalculateDistance();
       return;
     }
 
-    // Get initial fix
+    // Get initial real GPS fix
     final initial = await NativeLocationService.getCurrentPosition();
     if (initial != null) {
       _myLocation = PartnerLocation(
@@ -123,16 +167,20 @@ class PresenceState extends ChangeNotifier {
         longitude: initial.longitude,
         accuracy: initial.accuracy,
         updatedAt: initial.timestamp,
+        batteryLevel: _myBatteryLevel,
+        isCharging: _myIsCharging,
       );
       _locationRepository.updateMyLocation(
         coupleId: _coupleId,
         myUserId: _myUserId,
         reading: initial,
+        batteryLevel: _myBatteryLevel,
+        isCharging: _myIsCharging,
       );
       _recalculateDistance();
     }
 
-    // Start 25m distance-filtered stream
+    // Start battery-aware GPS distance stream
     _nativeLocationSubscription = NativeLocationService.getBatteryAwarePositionStream(
       distanceFilterMeters: 25,
     ).listen((reading) {
@@ -142,11 +190,15 @@ class PresenceState extends ChangeNotifier {
         longitude: reading.longitude,
         accuracy: reading.accuracy,
         updatedAt: reading.timestamp,
+        batteryLevel: _myBatteryLevel,
+        isCharging: _myIsCharging,
       );
       _locationRepository.updateMyLocation(
         coupleId: _coupleId,
         myUserId: _myUserId,
         reading: reading,
+        batteryLevel: _myBatteryLevel,
+        isCharging: _myIsCharging,
       );
       _recalculateDistance();
     });
@@ -157,21 +209,77 @@ class PresenceState extends ChangeNotifier {
     _partnerLocationSubscription = _locationRepository
         .watchPartnerLocation(coupleId: _coupleId, partnerId: _partnerId)
         .listen((loc) {
+      _partnerLocation = loc;
       if (loc != null) {
-        _partnerLocation = loc;
-        _isPartnerOnline = DateTime.now().difference(loc.updatedAt).inMinutes < 15;
-        _recalculateDistance();
+        _isPartnerOnline = DateTime.now().difference(loc.updatedAt).inMinutes < 5;
       }
+      _recalculateDistance();
     });
   }
 
+  void _listenToPartnerPresence() {
+    if (_partnerId.isEmpty || _coupleId.isEmpty) return;
+    _partnerPresenceSubscription = _firestore
+        .collection('couples')
+        .doc(_coupleId)
+        .collection('presence')
+        .doc(_partnerId)
+        .snapshots()
+        .listen((doc) {
+      if (!doc.exists) return;
+      final data = doc.data() ?? {};
+      final moodStr = data['mood'] as String?;
+      final lastSeen = (data['lastSeenAt'] as Timestamp?)?.toDate();
+
+      if (moodStr != null) {
+        _partnerMood = MoodType.values.firstWhere(
+          (m) => m.name == moodStr,
+          orElse: () => MoodType.loving,
+        );
+      }
+      if (lastSeen != null) {
+        _isPartnerOnline = DateTime.now().difference(lastSeen).inMinutes < 5;
+      }
+      notifyListeners();
+    });
+  }
+
+  Future<void> _publishMyPresence() async {
+    if (_coupleId.isEmpty || _myUserId.isEmpty) return;
+    try {
+      await _firestore
+          .collection('couples')
+          .doc(_coupleId)
+          .collection('presence')
+          .doc(_myUserId)
+          .set({
+        'mood': _myMood.name,
+        'lastSeenAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      // Non-fatal
+    }
+  }
+
   void _recalculateDistance() {
+    if (!_isLocationSharingEnabled) {
+      _proximity = const ProximityResult(
+        distanceInMeters: 0,
+        state: ProximityState.longDistance,
+        formattedDistance: 'Location sharing is off',
+        emotionalSubtitle: 'Turn on location sharing in settings.',
+        stateColor: AppColors.proximityLong,
+      );
+      notifyListeners();
+      return;
+    }
+
     if (_myLocation == null || _partnerLocation == null) {
       _proximity = const ProximityResult(
         distanceInMeters: 0,
         state: ProximityState.longDistance,
-        formattedDistance: 'Awaiting Location…',
-        emotionalSubtitle: 'Connected across distances.',
+        formattedDistance: 'Location unavailable',
+        emotionalSubtitle: 'Waiting for partner GPS coordinates…',
         stateColor: AppColors.proximityLong,
       );
       notifyListeners();
@@ -195,12 +303,13 @@ class PresenceState extends ChangeNotifier {
 
   void toggleLocationSharing(bool enabled) {
     _isLocationSharingEnabled = enabled;
-    notifyListeners();
+    _recalculateDistance();
   }
 
   void setMyMood(MoodType mood) {
     _myMood = mood;
     notifyListeners();
+    _publishMyPresence();
   }
 
   void setPartnerMood(MoodType mood) {
@@ -212,7 +321,10 @@ class PresenceState extends ChangeNotifier {
   void dispose() {
     _partnerLocationSubscription?.cancel();
     _nativeLocationSubscription?.cancel();
+    _partnerPresenceSubscription?.cancel();
+    _batterySubscription?.cancel();
     _freshnessTimer?.cancel();
+    _batteryPeriodicTimer?.cancel();
     super.dispose();
   }
 }

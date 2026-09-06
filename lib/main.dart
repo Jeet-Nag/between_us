@@ -144,6 +144,26 @@ class _RootAppCoordinatorState extends State<RootAppCoordinator> {
       });
     }
 
+    // If user has a known coupleId and couple data is still loading from Firestore, show loading
+    if ((user.coupleId != null && user.coupleId!.isNotEmpty && coupleState.couple == null) ||
+        (coupleState.isLoading && coupleState.couple == null)) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(gradient: AppColors.ambientGlow),
+          child: const Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                color: AppColors.primaryRose,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     // Step 2: Couple Space Pairing
     if (!coupleState.isConnected) {
       return PairingScreen(

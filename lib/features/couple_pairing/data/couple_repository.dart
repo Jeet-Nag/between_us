@@ -2,6 +2,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../auth_pairing/domain/couple_model.dart';
 import '../../../core/security/encryption_service.dart';
 
+class SelfPairingException implements Exception {
+  final String message;
+  const SelfPairingException([this.message = "You can't use your own invitation code. Ask your partner to join."]);
+  @override
+  String toString() => message;
+}
+
+class InvalidPairingCodeException implements Exception {
+  final String message;
+  const InvalidPairingCodeException(this.message);
+  @override
+  String toString() => message;
+}
+
 abstract class CoupleRepository {
   Stream<CoupleModel?> watchCouple(String coupleId, String myUserId);
   Future<CoupleModel> createCoupleSpace({
@@ -28,36 +42,40 @@ class FirebaseCoupleRepository implements CoupleRepository {
       final data = doc.data()!;
       final members = List<String>.from(data['members'] ?? []);
       final partnerId = members.firstWhere((id) => id != myUserId, orElse: () => '');
+      final memberNames = Map<String, dynamic>.from(data['memberNames'] ?? {});
 
       UserProfile? partnerProfile;
       if (partnerId.isNotEmpty) {
-        try {
-          final partnerDoc = await _firestore.collection('users').doc(partnerId).get().timeout(const Duration(seconds: 5));
-          final partnerData = partnerDoc.data() ?? {};
-          final name = partnerData['displayName'] as String? ?? 'Partner';
-          partnerProfile = UserProfile(
-            id: partnerId,
-            displayName: name,
-            initials: name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'P',
-          );
-        } catch (e) {
-          partnerProfile = UserProfile(
-            id: partnerId,
-            displayName: 'Partner',
-            initials: 'P',
-          );
+        String partnerName = memberNames[partnerId] as String? ?? '';
+        if (partnerName.isEmpty) {
+          try {
+            final partnerDoc = await _firestore.collection('users').doc(partnerId).get().timeout(const Duration(seconds: 4));
+            final partnerData = partnerDoc.data() ?? {};
+            partnerName = partnerData['displayName'] as String? ?? '';
+          } catch (_) {}
         }
+        if (partnerName.isEmpty) {
+          partnerName = 'Partner';
+        }
+        partnerProfile = UserProfile(
+          id: partnerId,
+          displayName: partnerName,
+          initials: partnerName.isNotEmpty ? partnerName.substring(0, 1).toUpperCase() : 'P',
+        );
       }
 
-      String myDisplayName = 'You';
-      try {
-        final myUserDoc = await _firestore.collection('users').doc(myUserId).get().timeout(const Duration(seconds: 5));
-        final myUserData = myUserDoc.data() ?? {};
-        if (myUserData['displayName'] != null && (myUserData['displayName'] as String).isNotEmpty) {
-          myDisplayName = myUserData['displayName'];
-        }
-      } catch (e) {
-        // Safe fallback
+      String myDisplayName = memberNames[myUserId] as String? ?? '';
+      if (myDisplayName.isEmpty) {
+        try {
+          final myUserDoc = await _firestore.collection('users').doc(myUserId).get().timeout(const Duration(seconds: 4));
+          final myUserData = myUserDoc.data() ?? {};
+          if (myUserData['displayName'] != null && (myUserData['displayName'] as String).isNotEmpty) {
+            myDisplayName = myUserData['displayName'];
+          }
+        } catch (_) {}
+      }
+      if (myDisplayName.isEmpty) {
+        myDisplayName = 'You';
       }
 
       return CoupleModel(
@@ -125,6 +143,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
       'pairingCode': pairingCode,
       'status': 'waitingForPartner',
       'members': [myUserId],
+      'memberNames': {myUserId: myDisplayName},
       'creatorId': myUserId,
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -133,6 +152,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
       'code': pairingCode,
       'coupleId': coupleRef.id,
       'creatorId': myUserId,
+      'creatorDisplayName': myDisplayName,
       'status': 'active',
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -149,7 +169,6 @@ class FirebaseCoupleRepository implements CoupleRepository {
 
     await batch.commit().timeout(const Duration(seconds: 10));
 
-    // Return the authoritative model only after atomic write succeeds
     return CoupleModel(
       id: coupleRef.id,
       pairingCode: pairingCode,
@@ -183,9 +202,15 @@ class FirebaseCoupleRepository implements CoupleRepository {
     final invData = invDoc.data()!;
     final invStatus = invData['status'] as String? ?? '';
     final coupleId = invData['coupleId'] as String? ?? '';
+    final creatorId = invData['creatorId'] as String? ?? '';
+
+    // STRICT INVARIANT 1: Self-Pairing Guard
+    if (creatorId == myUserId) {
+      throw const SelfPairingException("You can't use your own invitation code. Ask your partner to join.");
+    }
 
     if (invStatus != 'active' || coupleId.isEmpty) {
-      return null;
+      throw InvalidPairingCodeException('Code "$code" is no longer active or already paired.');
     }
 
     final coupleRef = _firestore.collection('couples').doc(coupleId);
@@ -200,21 +225,29 @@ class FirebaseCoupleRepository implements CoupleRepository {
         throw Exception('space_not_found');
       }
 
-      final currentCoupleStatus = coupleSnap.data()?['status'] as String?;
+      final coupleData = coupleSnap.data()!;
+      final currentCreatorId = coupleData['creatorId'] as String?;
+      final members = List<String>.from(coupleData['members'] ?? []);
+      final currentCoupleStatus = coupleData['status'] as String?;
       final currentInvStatus = freshInvSnap.data()?['status'] as String?;
 
-      if (currentCoupleStatus != 'waitingForPartner' || currentInvStatus != 'active') {
-        throw Exception('already_paired');
+      // STRICT INVARIANT 2: Self-pairing check inside atomic transaction
+      if (currentCreatorId == myUserId || members.contains(myUserId)) {
+        throw const SelfPairingException("You can't use your own invitation code. Ask your partner to join.");
       }
 
-      final members = List<String>.from(coupleSnap.data()?['members'] ?? []);
-      if (!members.contains(myUserId)) {
-        members.add(myUserId);
+      if (currentCoupleStatus != 'waitingForPartner' || currentInvStatus != 'active') {
+        throw InvalidPairingCodeException('Code "$code" is already paired or no longer waiting for partner.');
       }
+
+      members.add(myUserId);
+      final memberNames = Map<String, dynamic>.from(coupleData['memberNames'] ?? {});
+      memberNames[myUserId] = myDisplayName;
 
       // Update couple space to connected
       transaction.update(coupleRef, {
         'members': members,
+        'memberNames': memberNames,
         'status': 'connected',
         'partnerId': myUserId,
         'connectedAt': FieldValue.serverTimestamp(),
@@ -227,7 +260,7 @@ class FirebaseCoupleRepository implements CoupleRepository {
         'claimedAt': FieldValue.serverTimestamp(),
       });
 
-      // Update user's coupleId
+      // Update joining user's profile with coupleId
       transaction.set(
         _firestore.collection('users').doc(myUserId),
         {'coupleId': coupleId, 'displayName': myDisplayName},
@@ -239,6 +272,8 @@ class FirebaseCoupleRepository implements CoupleRepository {
     final data = updatedDoc.data() ?? {};
     final members = List<String>.from(data['members'] ?? []);
     final partnerId = members.firstWhere((id) => id != myUserId, orElse: () => '');
+    final memberNames = Map<String, dynamic>.from(data['memberNames'] ?? {});
+    final partnerName = memberNames[partnerId] as String? ?? 'Partner';
 
     return CoupleModel(
       id: coupleId,
@@ -252,8 +287,8 @@ class FirebaseCoupleRepository implements CoupleRepository {
       partner: partnerId.isNotEmpty
           ? UserProfile(
               id: partnerId,
-              displayName: 'Partner',
-              initials: 'P',
+              displayName: partnerName,
+              initials: partnerName.isNotEmpty ? partnerName.substring(0, 1).toUpperCase() : 'P',
             )
           : null,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
